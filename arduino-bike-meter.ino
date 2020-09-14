@@ -11,7 +11,10 @@
 
 // Hall sensor connections:
 // digital out of hall sensor to D2 of arduino
-int interruptPin = 2;
+int interruptPin = 2; //D2, digital input, internal pull up
+
+int photoresistorPin = A0; //A0, analog input
+int pwmLedPin = 3; //D3, PWM, output
 
 const int TRAINER_ROLLER_DIAMETER = 50; // mm
 const int WHEEL_DIAMETER = 700; // mm
@@ -22,9 +25,11 @@ LiquidCrystal_I2C lcd(0x3F, 16, 2); // use I2C scanner to find the address
 const char bell[8] PROGMEM = {B00100, B01110, B01110, B01110, B11111, B00000, B00100, B00000};
 
 volatile unsigned long num_rotations = 0;
-unsigned long last_compute_time = 0;
+unsigned long last_compute_time = 0; // last time we computed the stats
 unsigned long last_num_rotations = 0;
 float max_speed = 0; // km/h
+
+unsigned long last_light_time = 0; // last time we updated the LCD's light intensity
 
 const long SECOND = 1000;
 const long MINUTE = 60 * SECOND;
@@ -49,6 +54,7 @@ void setup() {
 void loop() {
   unsigned long current_time = millis();
   unsigned long time_diff = current_time - last_compute_time;
+  unsigned long light_time_diff = current_time - last_light_time;
 
   if (time_diff >= SECOND)
   {
@@ -150,5 +156,19 @@ void loop() {
 
     
     //lcd.write(0); //bell
+  }
+
+  // only update the display's light intensity every 100ms or so
+  if(light_time_diff >= 100)
+  {
+    last_light_time = current_time;
+    int lightAmount = analogRead(photoresistorPin);
+    
+    // get how much light hits the photoresistor (0-1023) and map that value to 0-255 in order to be able to change the intensity of the LCD's LED.
+    // only we do the mapping inversely: when we have a big amount of light hitting the photoresistor, we want to turn off the LED, so 1023 -> 0
+    // and when we have a small amount of light hitting the photoresistor (night), we want to turn on the LED, so 0 -> 255.
+    int mappedLightAmount = map(lightAmount, 0, 1023, 255, 0);
+
+    analogWrite(pwmLedPin, mappedLightAmount);
   }
 }
