@@ -36,6 +36,7 @@ Parts
 * 1x 220 Ohm resistor
 * 2x 10 kOhm resistors
 * Phototresistor
+* LM35 temperature sensor
 
 Wiring details can be found in the code itself and in the image below:
 ![sketch_bb.png - Parts wiring details](/sketch_bb.png?raw=true "Wiring details")

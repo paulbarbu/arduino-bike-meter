@@ -1,5 +1,7 @@
 #include <LiquidCrystal_I2C.h>
 
+//#define DEBUG
+
 // https://www.makerguides.com/character-i2c-lcd-arduino-tutorial/
 // Download: https://gitlab.com/tandembyte/LCD_I2C/
 
@@ -11,10 +13,11 @@
 
 // Hall sensor connections:
 // digital out of hall sensor to D2 of arduino
-int interruptPin = 2; //D2, digital input, internal pull up
+int interruptPin = 2; //D2, digital input, internal pull up (from TLE4906L Hall effect sensor's output pin)
 
-int photoresistorPin = A0; //A0, analog input
-int pwmLedPin = 3; //D3, PWM, output
+int photoresistorPin = A0; //A0, analog input (from photoresistor)
+int pwmLedPin = 3; //D3, PWM, output (to the 16x2 LCD's anode)
+int tempPin = A3; //A3, analog input (from LM35 temp sensor)
 
 const int TRAINER_ROLLER_DIAMETER = 50; // mm
 const int WHEEL_DIAMETER = 700; // mm
@@ -31,17 +34,31 @@ float max_speed = 0; // km/h
 
 unsigned long last_light_time = 0; // last time we updated the LCD's light intensity
 
+const long LIGHT_DIM_THRESHOLD = 100; // [ms] - how often we shuld read the photoresistor and update the LCD's brightness
+
 const long SECOND = 1000;
 const long MINUTE = 60 * SECOND;
 const long HOUR = 60 * MINUTE;
+
+// the number of readings of the temp is equal to the times we update the light on the LCD
+// since we read the temp and update the light at the same time
+const int numTemps = SECOND/LIGHT_DIM_THRESHOLD;
+int rawTemps[numTemps]; // the vector where we will store the last numTemps temperature readings
+int currentTempPos = 0; // position where we should write the next temperature reading
+int rawTotalTemp = 0; // the running average will be computed from this total
+
+
 
 void countRotations()
 {
   num_rotations++;
 }
 
-void setup() {
+void setup()
+{
+#ifdef DEBUG
   Serial.begin(9600);
+#endif
 
   pinMode(interruptPin, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(interruptPin), countRotations, FALLING); //normal output = 5V, when magnet is near, output = 0V.
@@ -49,6 +66,11 @@ void setup() {
   lcd.backlight();
 
   lcd.createChar(0, bell);
+
+  for(int i=0; i<numTemps; ++i)
+  {
+    rawTemps[i] = 0;
+  }
 }
 
 void loop() {
@@ -72,12 +94,28 @@ void loop() {
     //lcd.print("Rots ");
     //lcd.print(num_rotations);
 
-
     float distance = WHEEL_CIRCUMFERENCE * bike_rotations; // km
     float dist_per_time_unit = distance / current_time; // km/ms
     float avg_speed = dist_per_time_unit * HOUR; // km/h
     // try avg_spd = (dst*HOUR)/current_time;
+    
+    float instant_distance = WHEEL_CIRCUMFERENCE * bike_rots_in_period; // km
 
+    //knowing that the update period is 1 second (time diff) I could transform this to: instant_distance * 60*60;
+    float instant_speed = (instant_distance / time_diff) * HOUR; // km/h
+
+    if(instant_speed > max_speed)
+    {
+        max_speed = instant_speed;
+    }
+    
+    // do these computations only when showing them to the user since they are expensive
+    float rawAvgTemp = rawTotalTemp/numTemps;
+    float tempMilliVolts = rawAvgTemp/1024.0 * 5000.0; // transform to millivolts
+
+    float tempC = tempMilliVolts/10; // every 10mV are 1 deg C
+
+#ifdef DEBUG
     Serial.print("WHEEL_DIAMETER: ");
     Serial.println(WHEEL_DIAMETER);
 
@@ -111,16 +149,6 @@ void loop() {
     Serial.print("Current time [s]: ");
     Serial.println((float)current_time / SECOND, 4);
 
-    float instant_distance = WHEEL_CIRCUMFERENCE * bike_rots_in_period; // km
-
-    //knowing that the update period is 1 second (time diff) I could transform this to: instant_distance * 60*60;
-    float instant_speed = (instant_distance / time_diff) * HOUR; // km/h
-
-    if(instant_speed > max_speed)
-    {
-        max_speed = instant_speed;
-    }
-
     Serial.print("time diff: ");
     Serial.println(time_diff);
 
@@ -138,9 +166,13 @@ void loop() {
     
     Serial.print("Max speed [km/h]: ");
     Serial.println(max_speed, 4);
+    
+    Serial.print("Temp [deg C]: ");
+    Serial.println(tempC, 4);
 
     Serial.println();
-    
+#endif
+
     lcd.print("A "); //2 chars used
     lcd.print(avg_speed, 2); //+5 = 7 chars used
     lcd.print(" M "); //+3 = 10 chars used
@@ -154,12 +186,22 @@ void loop() {
     lcd.print(distance, 2); //+5 or 6 = 15/16 chars used
     lcd.print("           "); // make sure left over charachters on the line are overwritten
 
+
+    //TODO: show this only if the user pressed a button:
+    lcd.setCursor(0, 0); // col, line
+    lcd.print("Temp "); 
+    lcd.print(tempC, 2); //+5 or 6 = 15/16 chars used
+    lcd.print(" C          "); // make sure left over charachters on the line are overwritten
+
+
+    //TODO: show the user the temp and the temp with the windchill
     
     //lcd.write(0); //bell
   }
 
-  // only update the display's light intensity every 100ms or so
-  if(light_time_diff >= 100)
+  // only update the display's light intensity every LIGHT_DIM_THRESHOLD ms
+  // we also do the temp readings here
+  if(light_time_diff >= LIGHT_DIM_THRESHOLD)
   {
     last_light_time = current_time;
     int lightAmount = analogRead(photoresistorPin);
@@ -169,6 +211,20 @@ void loop() {
     // and when we have a small amount of light hitting the photoresistor (night), we want to turn on the LED, so 0 -> 255.
     int mappedLightAmount = map(lightAmount, 0, 1023, 255, 0);
 
+    // update the LCD's brightness
     analogWrite(pwmLedPin, mappedLightAmount);
+
+    // before overwriting the temperature with the latest one, subtract the stale value from the total
+    rawTotalTemp -= rawTemps[currentTempPos];
+
+    // read the temperature
+    int rawTemp = analogRead(tempPin); // 0 - 1023;
+
+    // update the temperatures and the total
+    rawTemps[currentTempPos] = rawTemp;
+    rawTotalTemp += rawTemp;
+    
+    currentTempPos += 1;
+    currentTempPos %= numTemps; // make sure we go to the beginning of the vector
   }
 }
