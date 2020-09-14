@@ -2,7 +2,7 @@ Bike-Meter
 ==========
 Note: work in progress
 
-A simple speed and distance bike computer built on Arduino Nano, showing the data on a 16x2 LCD display.
+A simple speed and distance bike computer built on Arduino Nano, showing the data on a 16x2 LCD display, featuring automatic display brightness adjustment.
 
 If you're using your bike on a home trainer and don't have the necessary speed sensors on it, this might help.
 It uses a hall sensor connected to the Arduino Nanoa to count your back wheel's rotations and from there it computes the speed and distance
@@ -29,11 +29,16 @@ In order to avoid keeping your laptop near the bike after flashing the arduino, 
 
 Parts
 =====
-Arduino Nano
-Hall sensor: TLE4906
-16x2 LCD
+* Arduino Nano
+* TLE4906L Hall effect sensor
+* 16x2 LCD
+* LCM 1602 I2C module for the 16x2 LCD
+* 1x 220 Ohm resistor
+* 2x 10 kOhm resistors
+* Phototresistor
 
-Connection details (for now) can be found in the code itself.
+Wiring details can be found in the code itself and in the image below:
+![sketch_bb.png - Parts wiring details](/sketch_bb.png?raw=true "Wiring details")
 
 LICENSE
 =======
